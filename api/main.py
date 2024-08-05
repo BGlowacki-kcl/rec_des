@@ -1,10 +1,9 @@
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from flask import Flask, request, jsonify
 
-app = FastAPI()
+app = Flask(__name__)
 
 data = {
     'event_id': [1, 2, 3, 4, 5],
@@ -29,7 +28,7 @@ cosine_sim = cosine_similarity(tfidf_matrix, tfidf_matrix)
 # Get recommendation
 def get_recommendations(event_id, cosine_sim=cosine_sim):
     if event_id not in events_df['event_id'].values:
-        raise HTTPException(status_code=404, detail="Event not found!")
+        raise ValueError("Event not found!")
     idx = events_df.index[events_df['event_id'] == event_id].tolist()[0]
     sim_scores = list(enumerate(cosine_sim[idx]))
     sim_scores = sorted(sim_scores, key=lambda x: x[1], reverse=True)
@@ -37,23 +36,23 @@ def get_recommendations(event_id, cosine_sim=cosine_sim):
     event_indicies = [i[0] for i in sim_scores]
     return events_df.iloc[event_indicies]
 
-class EventRequest(BaseModel):
-    event_id: int
-
-@app.get("/")
+@app.route("/")
 def read_root():
-    return {"message": "Recommendation system is running"}
+    return jsonify({"message": "Recommendation system is running"})
 
-@app.post("/recommendations/")
-def recommendations(request: EventRequest):
-    event_id = request.event_id
+@app.route("/recommendations/", methods=["POST"])
+def recommendations():
     try:
+        request_data = request.get_json()
+        event_id = request_data.get('event_id')
+        if event_id is None:
+            return jsonify({"error": "Event ID is required!"}), 400
         recommended_events = get_recommendations(event_id)
-        return {"recommendations": recommended_events.to_dict(orient='records')}
+        return jsonify({"recommendations": recommended_events.to_dict(orient='records')})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 404
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-    
+    app.run(host="0.0.0.0", port=8000)
